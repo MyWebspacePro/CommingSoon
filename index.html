@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aiconso</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: #050608;
+    }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 1;
+    }
+
+    .logo {
+      position: relative;
+      z-index: 2;
+      font-size: clamp(3.5rem, 12vw, 8rem);
+      font-weight: 200;
+      letter-spacing: -0.035em;
+      color: #fff;
+      user-select: none;
+      pointer-events: none;
+      animation: fade-in 2s ease-out;
+    }
+    .logo .ai {
+      font-weight: 500;
+      color: #7c5cfc;
+      text-shadow:
+        0 0 50px rgba(124, 92, 252, 0.8),
+        0 0 100px rgba(124, 92, 252, 0.4),
+        0 0 200px rgba(124, 92, 252, 0.2);
+    }
+    .logo .conso {
+      color: #d1d5db;
+    }
+
+    @keyframes fade-in {
+      0%   { opacity: 0; transform: scale(0.96); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="bg"></canvas>
+  <div class="logo"><span class="ai">ai</span><span class="conso">conso</span></div>
+
+  <script>
+    const canvas = document.getElementById('bg');
+    const ctx = canvas.getContext('2d');
+
+    let W, H;
+    function resize() {
+      W = canvas.width = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // --- Neural network ---
+    const COUNT = 240;
+    const CONN_DIST = 120;
+    const SPEED = 0.18;
+
+    const COLORS = ['124,92,252', '139,92,246', '168,85,247', '99,102,241'];
+
+    const particles = [];
+    for (let i = 0; i < COUNT; i++) {
+      particles.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: (Math.random() - 0.5) * SPEED * 2,
+        vy: (Math.random() - 0.5) * SPEED * 2,
+        r: Math.random() * 2 + 1.2,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        phase: Math.random() * Math.PI * 2,
+        pulseSpeed: 0.006 + Math.random() * 0.012,
+      });
+    }
+
+    // --- Mouse interaction ---
+    let mouse = { x: W / 2, y: H / 2 };
+    let mouseOnScreen = false;
+    let mdx = 0, mdy = 0;
+    let prevMX = W / 2, prevMY = H / 2;
+
+    canvas.addEventListener('mousemove', e => {
+      mdx = e.clientX - prevMX;
+      mdy = e.clientY - prevMY;
+      prevMX = e.clientX;
+      prevMY = e.clientY;
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      mouseOnScreen = true;
+    });
+    canvas.addEventListener('mouseleave', () => {
+      mouseOnScreen = false;
+    });
+
+    // --- Ambient glow that drifts ---
+    function drawAmbient(time) {
+      const gx = W / 2 + Math.sin(time * 0.05) * 100;
+      const gy = H / 2 + Math.cos(time * 0.03) * 60;
+      const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(W, H) * 0.5);
+      grad.addColorStop(0, 'rgba(124, 92, 252, 0.035)');
+      grad.addColorStop(0.5, 'rgba(99, 102, 241, 0.01)');
+      grad.addColorStop(1, 'rgba(5, 6, 8, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    function draw(time) {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#050608';
+      ctx.fillRect(0, 0, W, H);
+
+      const t = time * 0.001;
+      drawAmbient(t);
+
+      // --- move particles ---
+      for (const p of particles) {
+        // organic drift
+        p.vx += Math.sin(t * 0.2 + p.phase) * 0.0015;
+        p.vy += Math.cos(t * 0.25 + p.phase * 1.3) * 0.0015;
+
+        // mouse repulsion
+        if (mouseOnScreen) {
+          const dx = p.x - mouse.x;
+          const dy = p.y - mouse.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 180 && dist > 1) {
+            const force = (180 - dist) / 180;
+            p.vx += (dx / dist) * force * 0.5;
+            p.vy += (dy / dist) * force * 0.5;
+            p.vx += mdx * force * 0.01;
+            p.vy += mdy * force * 0.01;
+          }
+        }
+
+        // dampen
+        p.vx *= 0.998;
+        p.vy *= 0.998;
+
+        const spd = Math.hypot(p.vx, p.vy);
+        if (spd > SPEED * 2) {
+          p.vx = (p.vx / spd) * SPEED * 2;
+          p.vy = (p.vy / spd) * SPEED * 2;
+        }
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // wrap
+        if (p.x < -30) p.x = W + 30;
+        if (p.x > W + 30) p.x = -30;
+        if (p.y < -30) p.y = H + 30;
+        if (p.y > H + 30) p.y = -30;
+      }
+
+      // --- spatial hash ---
+      const cellSize = CONN_DIST;
+      const cols = Math.ceil(W / cellSize) + 1;
+      const rows = Math.ceil(H / cellSize) + 1;
+      const grid = new Array(cols * rows);
+      for (const p of particles) {
+        const cx = Math.floor((p.x + 30) / cellSize);
+        const cy = Math.floor((p.y + 30) / cellSize);
+        const idx = cx + cy * cols;
+        if (idx >= 0 && idx < grid.length) {
+          if (!grid[idx]) grid[idx] = [];
+          grid[idx].push(p);
+        }
+      }
+
+      // --- draw connections ---
+      for (const p of particles) {
+        const cx = Math.floor((p.x + 30) / cellSize);
+        const cy = Math.floor((p.y + 30) / cellSize);
+
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+            const bucket = grid[nx + ny * cols];
+            if (!bucket) continue;
+
+            for (const q of bucket) {
+              if (p === q) continue;
+              if (p.phase <= q.phase) continue;
+
+              const dx2 = p.x - q.x;
+              const dy2 = p.y - q.y;
+              const dist = Math.hypot(dx2, dy2);
+
+              if (dist < CONN_DIST) {
+                const alpha = (1 - dist / CONN_DIST) * 0.35;
+                const pulse = Math.sin(t * 0.7 + p.phase + q.phase) * 0.15 + 0.85;
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(q.x, q.y);
+                ctx.strokeStyle = `rgba(124, 92, 252, ${alpha * pulse})`;
+                ctx.lineWidth = 0.5 + (1 - dist / CONN_DIST) * 0.6;
+                ctx.stroke();
+              }
+            }
+          }
+        }
+      }
+
+      // --- draw particles ---
+      for (const p of particles) {
+        const glow = Math.sin(t * p.pulseSpeed * 100 + p.phase) * 0.2 + 0.8;
+        const radius = p.r * (0.8 + glow * 0.3);
+
+        // halo
+        const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 5);
+        halo.addColorStop(0, `rgba(${p.color}, ${0.12 * glow})`);
+        halo.addColorStop(1, `rgba(${p.color}, 0)`);
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // core
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${p.color}, ${0.5 * glow})`;
+        ctx.fill();
+
+        // bright center
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${p.color}, ${0.9 * glow})`;
+        ctx.fill();
+      }
+
+      // --- signal pulses ---
+      if (Math.random() < 0.04) {
+        const a = particles[Math.floor(Math.random() * particles.length)];
+        const b = particles[Math.floor(Math.random() * particles.length)];
+        if (a !== b) {
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          if (Math.hypot(dx, dy) < CONN_DIST) {
+            const t2 = Math.random();
+            const px = a.x + (b.x - a.x) * t2;
+            const py = a.y + (b.y - a.y) * t2;
+            const sig = ctx.createRadialGradient(px, py, 0, px, py, 8);
+            sig.addColorStop(0, 'rgba(168, 85, 247, 0.6)');
+            sig.addColorStop(1, 'rgba(168, 85, 247, 0)');
+            ctx.fillStyle = sig;
+            ctx.beginPath();
+            ctx.arc(px, py, 8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      requestAnimationFrame(draw);
+    }
+
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>
